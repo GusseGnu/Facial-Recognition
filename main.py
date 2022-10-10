@@ -68,19 +68,26 @@ def face_confidence(face_distance, face_match_threshold=0.6):  # Helper function
 
 def video_capture(in_queue, out_queue, box_queue):
     vid = cv2.VideoCapture(0)
+    print("Capturing in " + str(int(vid.get(3))) + "x" + str(int(vid.get(4))) + " at " + str(int(vid.get(5))) + "fps")
     # Keep track of when a face was last recognized
     time_since_last_new = time.process_time()
     while True:
         ret, frame = vid.read()
+        # print("in_queue size " + str(in_queue.qsize()))
+        # print("out_queue size " + str(out_queue.qsize()))
         # Put frame in queue for processing
         if in_queue.empty():
+            in_queue.put_nowait(frame)
+        else:
+            in_queue.get()
             in_queue.put_nowait(frame)
         if not box_queue.empty():
             # If a face box is ready, and it was found recently, draw ít
             if (box_queue.qsize() == 1) and ((time.process_time() - time_since_last_new) < 0.5):
-                print("Framing")
-                print(time.process_time() - time_since_last_new)
+                # print("Framing")
                 box = box_queue.get()
+                print("Getting - " + str(box[0]) + ", " + str(box[3]) + ", " + str(box[2]) + ", " +
+                      str(box[1]) + " box_queue size: " + str(box_queue.qsize()))
                 cv2.rectangle(frame, (box[3], box[0]), (box[1], box[2]), (0, 0, 255), 2)
                 cv2.rectangle(frame, (box[3], box[2] - 35), (box[1], box[2]), (0, 0, 255), cv2.FILLED)
                 cv2.putText(frame, box[4], (box[3] + 6, box[2] - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
@@ -90,15 +97,19 @@ def video_capture(in_queue, out_queue, box_queue):
                 time_since_last_new = time.process_time()
         # Put in the queue to be displayed
         out_queue.put_nowait(frame)
+        # If out_queue size is growing in size, then the display has closed and so should capture
+        if out_queue.qsize() > 10:
+            break
 
 
 def video_processing(in_queue, box_queue):
     while True:
         if not in_queue.empty():
-            print("Processing")
+            # print("Processing")
             # Get frame to process from queue, resize it for faster processing, find faces and encode
             frame = in_queue.get_nowait()
-            # TODO Instead of resizing entire image process area around last found face
+            # TODO Instead of resizing entire image, process area around last found face
+            # if box_queue.empty():
             small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
             rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
             face_locations = face_recognition.face_locations(rgb_small_frame)
@@ -119,7 +130,7 @@ def video_processing(in_queue, box_queue):
                     # Use helper function to calculate a confidence for face to display
                     confidence = face_confidence(face_distances[best_match_index])
 
-                face_names.append(f'{name} ({confidence}')
+                face_names.append(f'{name} ({confidence})')
 
             # Rescale the position of the found faces (was scaled down to 0.25 so multiply by 4)
             for (top, right, bottom, left), name in zip(face_locations, face_names):
@@ -128,18 +139,51 @@ def video_processing(in_queue, box_queue):
                 bottom *= 4
                 left *= 4
                 box_queue.put([top, right, bottom, left, name])
-
-                # Draw box around recognized face with a name and confidence
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-                cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
-                cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
+                print("top: " + str(top) + " left: " + str(left) + " bottom: " + str(bottom) + " right: " + str(
+                    right) + " box_queue size: " + str(box_queue.qsize()))
+                # print("box_queue size " + str(box_queue.qsize()))
+            # else:
+            #     borders = box_queue.get()
+            #     box_queue.put(borders)
+            #     small_frame = frame[(borders[0]-20):(borders[2]+20), (borders[3]-20):(borders[1]+20)]
+            #     rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+            #     face_locations = face_recognition.face_locations(rgb_small_frame)
+            #     face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+            #     face_names = []
+            #
+            #     # Load encodings and initialize default name and confidence
+            #     for face_encoding in face_encodings:
+            #         matches = face_recognition.compare_faces(knownEncodings, face_encoding)
+            #         name = "Unknown"
+            #         confidence = '???'
+            #
+            #         # Compare encodings and match to the closest one
+            #         face_distances = face_recognition.face_distance(knownEncodings, face_encoding)
+            #         best_match_index = numpy.argmin(face_distances)
+            #         if matches[best_match_index]:
+            #             name = knownNames[best_match_index]
+            #             # Use helper function to calculate a confidence for face to display
+            #             confidence = face_confidence(face_distances[best_match_index])
+            #
+            #         face_names.append(f'{name} ({confidence})')
+            #
+            #     # Since the frame is not scaled, no action is necessary for rescaling
+            #     for (top, right, bottom, left), name in zip(face_locations, face_names):
+            #         top += borders[0]-20
+            #         right += borders[1]+20
+            #         bottom += borders[2]+20
+            #         left += borders[3]-20
+            #         box_queue.put([top, right, bottom, left, name])
+            #         # print("box_queue size " + str(box_queue.qsize()))
+            #         print("Putting - " + str(top) + ", " + str(left) + ", " + str(bottom) + ", " +
+            #               str(right) + " box_queue size: " + str(box_queue.qsize()))
 
 
 def video_display(out_queue):
     while True:
         # Display video
         cv2.imshow('Face Recognition', out_queue.get())
-        print("Displaying")
+        # print("Displaying")
 
         # Close if 'q' is pressed
         if cv2.waitKey(1) == ord('q'):
@@ -147,16 +191,17 @@ def video_display(out_queue):
     cv2.destroyAllWindows()
 
 
+cas_face_path = os.path.dirname(cv2.__file__) + "/data/haarcascade_frontalface_alt2.xml"
+faceCascade = cv2.CascadeClassifier(cas_face_path)
+file_exists = os.path.exists("face_enc")
+if file_exists:
+    data = pickle.loads(open('face_enc', "rb").read())
+    knownEncodings = data["encodings"]
+    knownNames = data["names"]
+else:
+    training()
+
 if __name__ == "__main__":
-    cas_face_path = os.path.dirname(cv2.__file__) + "/data/haarcascade_frontalface_alt2.xml"
-    faceCascade = cv2.CascadeClassifier(cas_face_path)
-    file_exists = os.path.exists("face_enc")
-    if file_exists:
-        data = pickle.loads(open('face_enc', "rb").read())
-        knownEncodings = data["encodings"]
-        knownNames = data["names"]
-    else:
-        training()
 
     input_queue = multiprocessing.Queue(maxsize=1000)
     output_queue = multiprocessing.Queue(maxsize=1000)

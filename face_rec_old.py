@@ -77,6 +77,8 @@ def image_recognition():
         else:
             image = cv2.resize(image, (0, 0), fx=(720 / image.shape[1]), fy=(720 / image.shape[1]))
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    cropped = image[0:240, 240:480]
+    cv2.imshow("Cropped image" ,cropped)
     # convert image to Greyscale for haarcascade
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = faceCascade.detectMultiScale(gray,
@@ -339,5 +341,5 @@ else:
     main.training()
 
 # main.training()
-image_recognition()
+# image_recognition()
 video_recognition_fast()
