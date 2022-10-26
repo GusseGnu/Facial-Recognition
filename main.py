@@ -7,6 +7,8 @@ import time
 import numpy
 import math
 import multiprocessing
+import imagezmq
+import socket
 
 
 def training():
@@ -180,9 +182,14 @@ def video_processing(in_queue, box_queue):
 
 
 def video_display(out_queue):
+    sender = imagezmq.ImageSender(connect_to='tcp://82.211.207.249:5555')
+    rpi_name = socket.gethostname()
     while True:
         # Display video
-        cv2.imshow('Face Recognition', out_queue.get())
+        image = out_queue.get()
+        cv2.imshow('Face Recognition', image)
+        image = cv2.resize(image, (0, 0), fx=0.5, fy=0.5)
+        # sender.send_image(msg=rpi_name, image=image)
         # print("Displaying")
 
         # Close if 'q' is pressed
