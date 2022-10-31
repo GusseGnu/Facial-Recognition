@@ -209,28 +209,59 @@ def train_on_all():
     # train_data = tensorflow.data.Dataset.from_tensor_slices((new_amps, [1]*int(len(new_amps)/2) + [1] + [0]*int(len(new_amps)/2)))
     # train_data = train_data.shuffle(100).batch(64)
 
-    train_data = np.array(new_amps)
-    print(train_data.shape)
-    train_data = train_data.reshape((train_data.shape[0], train_data.shape[1], 1))
-    print(train_data.shape)
-    train_labels = [1]*int(len(new_amps)/2) + [1] + [0]*int(len(new_amps)/2)
+    # train_data = np.array(new_amps)
+    # print(train_data.shape)
+    # train_data = train_data.reshape((train_data.shape[0], train_data.shape[1], 1))
+    # print(train_data.shape)
+    # train_labels = [1]*int(len(new_amps)/2) + [1] + [0]*int(len(new_amps)/2)
+    # train_labels = np.array(train_labels)
+
+    still1 = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
+    still6 = amp_calc(parse("kanalforsøg/Kanal6Stilhed.csv"))
+    still11 = amp_calc(parse("kanalforsøg/Kanal11Stilhed.csv"))
+
+    move1 = amp_calc(parse("kanalforsøg/Kanal1Bevægelse.csv"))
+    move6 = amp_calc(parse("kanalforsøg/Kanal6Bevægelse.csv"))
+    move11 = amp_calc(parse("kanalforsøg/Kanal11Bevægelse.csv"))
+
+    train_labels = [0] * len(still1) + [1] * len(move1) + [0] * len(still6) + [1] * len(move6) + [0] * len(still11) + [
+        1] * len(move11)
+    train_data = np.concatenate((still1, move1, still6, move6, still11, move11), axis=0)
+    train_data = np.array(train_data)
     train_labels = np.array(train_labels)
+    print(train_data.shape)
 
     model = keras.Sequential()
-    model.add(keras.layers.LSTM(167, input_shape=(train_data.shape[1], 1)))
-    model.add(keras.layers.Dense(1, activation='softmax'))
+    # model.add(keras.layers.LSTM(167, input_shape=(train_data.shape[1], 1)))
+    model.add(keras.layers.Input(shape=(train_data.shape[1], 1), dtype=tensorflow.float64)),
+    model.add(keras.layers.LSTM(train_data.shape[1])),
+    model.add(keras.layers.Dense(1, activation='sigmoid'))
+    # model.add(keras.layers.RepeatVector(train_data.shape[0]))
+    # model.add(keras.layers.LSTM(train_data.shape[1], return_sequences=True))
+    # model.add(keras.layers.TimeDistributed(keras.layers.Dense(1, activation='sigmoid')))
 
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
     model.build()
     model.summary()
 
-    model.fit(train_data, train_labels, epochs=10)
+    print(train_data[0][0].dtype)
+
+    model.fit(train_data, train_labels, epochs=5)
     test_loss, test_acc = model.evaluate(train_data, train_labels)
     print('\nTest accuracy:', test_acc*100, "%")
-
+    print("Ratio of ones:", train_labels.tolist().count(1) / len(train_labels.tolist()) * 100, "%")
     # probability_model = keras.Sequential([model, keras.layers.Softmax()])
     # predictions = probability_model.predict(test_images)
 
+    test_data = amp_calc(parse("kanalforsøg/Kanal6Bevægelse.csv"))
+    predictions = (model.predict(test_data) > 0.5).astype(int)
+    print("Nonzero count", np.count_nonzero(predictions))
+    print("Test accuracy:", np.count_nonzero(predictions)/len(predictions))
+
+    test_data = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
+    predictions = (model.predict(test_data) > 0.5).astype(int)
+    print("Nonzero count", np.count_nonzero(predictions))
+    print("Test accuracy:", 1-(np.count_nonzero(predictions)/len(predictions)))
 
 def train_on_one():
     model = keras.Sequential([
