@@ -1,66 +1,58 @@
 import sys
-import time
 import matplotlib.pyplot as plt
 import math
 import numpy as np
-import matplotlib
+import collections
+from wait_timer import WaitTimer
 
+# Set subcarrier to plot
+subcarrier = 50
 
-perm_amp = []
-perm_phase = []
+# Wait Timers. Change these values to increase or decrease the rate of `print_stats` and `render_plot`.
+print_stats_wait_timer = WaitTimer(1.0)
+render_plot_wait_timer = WaitTimer(0.2)
+
+# Deque definition
+perm_amp = collections.deque(maxlen=100)
+perm_phase = collections.deque(maxlen=100)
+
+# Variables to store CSI statistics
+packet_count = 0
+total_packet_counts = 0
+
 # Create figure for plotting
 plt.ion()
 fig = plt.figure()
 ax = fig.add_subplot(111)
-count = 0
-plt.xlabel("X-axis")
-plt.ylabel("Y-axis")
-plt.title("Updating plot...")
 fig.canvas.draw()
 plt.show(block=False)
-process_line = True
-
-
+def readline():
+    while True:
+        try:
+            sys.stdin.buffer.flush()
+            return sys.stdin.buffer.readline().decode('utf-8').replace("\n", "")
+        except:
+            pass  # might not be a utf-8 string!
 def carrier_plot(amp):
-    start_time = time.time()
-    if count > 100:
-        # plt.xticks(np.arange(count-100, count, 20))
-        # plt.xlim(len(perm_amp) - 101, len(perm_amp)-1)
-        plt.xticks([], [])
-        plt.xlim()
-        # print(lims)
-        # plt.xticks([lims[0], lims[1], 20])
-    else:
-        plt.xlim(0, 100)
-    plt.xlabel("Packet number/Time")
+    plt.clf()
+    df = np.asarray(amp, dtype=np.int32)
+    # Can be changed to df[x] to plot sub-carrier x only (set color='r' also)
+    plt.plot(range(100 - len(amp), 100), df[:, subcarrier], color='r')
+    plt.xlabel("Time")
     plt.ylabel("Amplitude")
-    plt.rcParams["figure.figsize"] = [7.50, 3.50]
-    plt.rcParams["figure.autolayout"] = True
-    plt.title("Line graph")
-    plt.show()
-
-    df = np.asarray(amp)
-    # print(df.shape)
-    # Can be changed to df[:,x] to plot sub-carrier x only (set color='r' also)
-    plt.plot(df[:,50], color='r')
-    # fig.canvas.draw()
-
+    plt.xlim(0, 100)
+    plt.ylim(0,60)
+    plt.title(f"Amplitude plot of Subcarrier {subcarrier}")
     # TODO use blit instead of flush_events for more fastness
     # to flush the GUI events
     fig.canvas.flush_events()
-    plt.clf()
-    end_time = time.time()
-    print("Time elapsed in carrier_plot: " + str(end_time - start_time))
-
-
+    plt.show()
 def process(res):
-    start_time = time.time()
-    # Process csi data
+    # Parser
     all_data = res.split(',')
     csi_data = all_data[25].split(" ")
     csi_data[0] = csi_data[0].replace("[", "")
     csi_data[-1] = csi_data[-1].replace("]", "")
-
     csi_data.pop()
     csi_data = [int(c) for c in csi_data if c]
     imaginary = []
@@ -70,7 +62,6 @@ def process(res):
             imaginary.append(val)
         else:
             real.append(val)
-
     csi_size = len(csi_data)
     amplitudes = []
     phases = []
@@ -80,29 +71,25 @@ def process(res):
             phase_calc = math.atan2(imaginary[j], real[j])
             amplitudes.append(amplitude_calc)
             phases.append(phase_calc)
-
         perm_phase.append(phases)
         perm_amp.append(amplitudes)
-        print("perm_phase_length: " + str(len(perm_phase)))
-        print("perm_amp_length: " + str(len(perm_amp)))
-        end_time = time.time()
-        if end_time - start_time > 0.01:
-            print("Time elapsed in process: " + str(end_time - start_time))
 
+count = 0
 
 while True:
-    line = sys.stdin.readline()
-    # if process_line:    # Only process every other line?
+    line = readline()
     if "CSI_DATA" in line:
         count += 1
         process(line)
         print("Number of lines read: " + str(count))
-        print(len(line))
+        packet_count += 1
+        total_packet_counts += 1
 
-        if count > 5:
-            if len(perm_amp) < 100:
-                carrier_plot(perm_amp)
-            else:
-                carrier_plot(perm_amp[len(perm_amp)-100:len(perm_amp)])
-                # carrier_plot(perm_amp)
-    # process_line = not process_line
+        if print_stats_wait_timer.check():
+            print_stats_wait_timer.update()
+            print("Packet Count:", packet_count, "per second.", "Total Count:", total_packet_counts)
+            packet_count = 0
+
+        if render_plot_wait_timer.check() and len(perm_amp) > 2:
+            render_plot_wait_timer.update()
+            carrier_plot(perm_amp)

@@ -6,6 +6,7 @@ import matplotlib
 import pandas as pd
 import tensorflow
 from tensorflow import keras
+from sklearn import feature_selection
 matplotlib.use('TkAgg')
 
 
@@ -124,6 +125,7 @@ def amp_calc(csi_data):
 
 def remove_bad_carriers(amp_data):
     good_ones = amp_data
+    indices = []
     n = 0
     for i in range(0, amp_data.shape[1]):
         count = 0
@@ -134,10 +136,11 @@ def remove_bad_carriers(amp_data):
                 count = 0
             if count > 10:
                 good_ones = np.delete(good_ones, i-n, 1)
+                indices.append(i)
                 n += 1
                 print("Deleted " + str(i+1))
                 break
-    return good_ones
+    return good_ones, indices
 
 
 def make_labels(data):
@@ -161,7 +164,7 @@ print("amps data shape ", amps.shape)
 # plt.plot(amps[:300, 1])
 # plt.show()
 
-new_amps = np.array(remove_bad_carriers(amps))
+new_amps, indices = np.array(remove_bad_carriers(amps))
 print(new_amps.shape)
 
 one_carrier = new_amps[:, 64]
@@ -216,52 +219,140 @@ def train_on_all():
     # train_labels = [1]*int(len(new_amps)/2) + [1] + [0]*int(len(new_amps)/2)
     # train_labels = np.array(train_labels)
 
-    still1 = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
-    still6 = amp_calc(parse("kanalforsøg/Kanal6Stilhed.csv"))
-    still11 = amp_calc(parse("kanalforsøg/Kanal11Stilhed.csv"))
+    # still1 = amp_calc(parse("kanal1/still1.csv"))
+    # still2 = amp_calc(parse("kanal1/still2.csv"))
+    # still3 = amp_calc(parse("kanal1/still3.csv"))
+    # still4 = amp_calc(parse("kanal1/still4.csv"))
+    # still5 = amp_calc(parse("kanal1/still5.csv"))
+    # still6 = amp_calc(parse("kanal1/still6.csv"))
+    #
+    # move1 = amp_calc(parse("kanal1/move1.csv"))
+    # move2 = amp_calc(parse("kanal1/move2.csv"))
+    # move3 = amp_calc(parse("kanal1/move3.csv"))
+    # move4 = amp_calc(parse("kanal1/move4.csv"))
+    # move5 = amp_calc(parse("kanal1/move5.csv"))
+    # move6 = amp_calc(parse("kanal1/move6.csv"))
+    #
+    # train_labels = [0]*len(still1)+[1]*len(move1)+[0]*len(still2)+[1]*len(move2)+[0]*len(still3)+[1]*len(move3) \
+    #                + [0]*len(still4)+[1]*len(move4)+[0]*len(still5)+[1]*len(move5)+[0]*len(still6)+[1]*len(move6)
+    # train_data = np.concatenate((still1, move1, still2, move2, still3, move3,
+    #                              still4, move4, still5, move5, still6, move6), axis=0)
 
-    move1 = amp_calc(parse("kanalforsøg/Kanal1Bevægelse.csv"))
-    move6 = amp_calc(parse("kanalforsøg/Kanal6Bevægelse.csv"))
-    move11 = amp_calc(parse("kanalforsøg/Kanal11Bevægelse.csv"))
+    train_still = amp_calc(parse("kanal1/train_still.csv"))
+    train_move = amp_calc(parse("kanal1/train_move.csv"))
 
-    train_labels = [0] * len(still1) + [1] * len(move1) + [0] * len(still6) + [1] * len(move6) + [0] * len(still11) + [
-        1] * len(move11)
-    train_data = np.concatenate((still1, move1, still6, move6, still11, move11), axis=0)
+    test_still = amp_calc(parse("kanal1/test_still.csv"))
+    test_move = amp_calc(parse("kanal1/test_move.csv"))
+
+    train_data = np.concatenate((train_still, train_move), axis=0)
+    train_labels = [0]*len(train_still) + [1]*len(train_move)
+    train_data, indices = remove_bad_carriers(train_data)
+
     train_data = np.array(train_data)
     train_labels = np.array(train_labels)
     print(train_data.shape)
+    print("Data type is ", train_data[0][0].dtype)
 
+    # filter_indices = [0, 1, 2, 3, 4, 5, 59, 60, 61, 62, 63, 64, 65, 191]
+    # train_data_filter = np.array(train_data)[:, filter_indices]
+    # plt.plot(train_data_filter)
+    # plt.show()
+
+    # accuracies = []
+    # for i in range(10):
     model = keras.Sequential()
     # model.add(keras.layers.LSTM(167, input_shape=(train_data.shape[1], 1)))
     model.add(keras.layers.Input(shape=(train_data.shape[1], 1), dtype=tensorflow.float64)),
     model.add(keras.layers.LSTM(train_data.shape[1])),
+    # model.add(keras.layers.LSTM(train_data.shape[1], kernel_regularizer=keras.regularizers.L2(0.001))),
+    # model.add(keras.layers.Dropout(0.5))
+    # model.add(keras.layers.LSTM(train_data.shape[1], input_shape=(train_data.shape[1], None))),
     model.add(keras.layers.Dense(1, activation='sigmoid'))
     # model.add(keras.layers.RepeatVector(train_data.shape[0]))
-    # model.add(keras.layers.LSTM(train_data.shape[1], return_sequences=True))
     # model.add(keras.layers.TimeDistributed(keras.layers.Dense(1, activation='sigmoid')))
 
     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
     model.build()
     model.summary()
 
-    print(train_data[0][0].dtype)
-
-    model.fit(train_data, train_labels, epochs=5)
+    model.fit(train_data, train_labels, epochs=10)
     test_loss, test_acc = model.evaluate(train_data, train_labels)
     print('\nTest accuracy:', test_acc*100, "%")
     print("Ratio of ones:", train_labels.tolist().count(1) / len(train_labels.tolist()) * 100, "%")
-    # probability_model = keras.Sequential([model, keras.layers.Softmax()])
-    # predictions = probability_model.predict(test_images)
 
-    test_data = amp_calc(parse("kanalforsøg/Kanal6Bevægelse.csv"))
-    predictions = (model.predict(test_data) > 0.5).astype(int)
-    print("Nonzero count", np.count_nonzero(predictions))
-    print("Test accuracy:", np.count_nonzero(predictions)/len(predictions))
+    # test_data = amp_calc(parse("kanalforsøg/Kanal1Bevægelse.csv"))
+    # predictions = (model.predict(test_data) > 0.5).astype(int)
+    # print("Nonzero count", np.count_nonzero(predictions))
+    # print("Test accuracy:", np.count_nonzero(predictions)/len(predictions))
+    #
+    # test_data = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
+    # predictions = (model.predict(test_data) > 0.5).astype(int)
+    # print("Nonzero count", np.count_nonzero(predictions))
+    # print("Test accuracy:", 1-(np.count_nonzero(predictions)/len(predictions)))
 
-    test_data = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
+    test_data = np.concatenate((test_still, test_move), axis=0)
+    test_data = np.delete(test_data, indices, 1)
+    test_labels = np.array([0]*len(test_still) + [1]*len(test_move))
+    test_labels = np.array(test_labels)
     predictions = (model.predict(test_data) > 0.5).astype(int)
-    print("Nonzero count", np.count_nonzero(predictions))
-    print("Test accuracy:", 1-(np.count_nonzero(predictions)/len(predictions)))
+    count = 0
+    for i in range(len(predictions)):
+        if predictions[i] == test_labels[i]:
+            count += 1
+    accuracy = (count/len(test_labels))*100
+    print("Test accuracy:", accuracy, "%")
+    # accuracies.append(accuracy)
+
+    # print(accuracies)
+    # print("Average accuracy:", sum(accuracies)/len(accuracies), "%")
+    selector = feature_selection.SelectKBest(feature_selection.f_classif, k=10)
+    selected_features = selector.fit_transform(train_data, train_labels)
+    print(train_data.shape)
+    top_features = (-selector.scores_).argsort()[:66]
+
+    # print(top_features)
+    plt.plot(selector.scores_)
+    plt.plot(list(range(0, train_data.shape[1])), [200]*train_data.shape[1], ':')
+    plt.grid(axis='x')
+    plt.show()
+
+    # plt.plot(selected_features)
+    # plt.show()
+
+    train_data = np.array(train_data)[:, top_features]
+    test_data = np.array(test_data)[:, top_features]
+    plt.plot(train_data)
+    plt.show()
+    # print(train_data.shape)
+    #
+    # accuracies = []
+    # for i in range(10):
+    #     model = keras.Sequential()
+    #     model.add(keras.layers.Input(shape=(train_data.shape[1], 1), dtype=tensorflow.float64)),
+    #     model.add(keras.layers.LSTM(train_data.shape[1], kernel_regularizer=keras.regularizers.L2(0.001))),
+    #     model.add(keras.layers.Dropout(0.4))
+    #     model.add(keras.layers.Dense(1, activation='sigmoid'))
+    #
+    #     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    #     model.build()
+    #     model.summary()
+    #
+    #     model.fit(train_data, train_labels, epochs=25)
+    #     test_loss, test_acc = model.evaluate(train_data, train_labels)
+    #     print('\nTest accuracy:', test_acc*100, "%")
+    #
+    #     predictions = (model.predict(test_data) > 0.5).astype(int)
+    #     count = 0
+    #     for i in range(len(predictions)):
+    #         if predictions[i] == test_labels[i]:
+    #             count += 1
+    #     accuracy = (count/len(test_labels))*100
+    #     print("Test accuracy:", accuracy, "%")
+    #     accuracies.append(accuracy)
+    #
+    # print(accuracies)
+    # print("Average accuracy:", sum(accuracies)/len(accuracies), "%")
+
 
 def train_on_one():
     model = keras.Sequential([
