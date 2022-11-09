@@ -36,8 +36,14 @@ def parse(path):
     csi_df.drop(csi_df.loc[csi_df['sig_mode'] == 0].index, inplace=True)
     print(csi_df.shape)
     CSI_col = csi_df['CSI_DATA'].copy()
-    print(CSI_col.shape)
-    final_csi_data = np.array([np.fromstring(csi_datum.strip('[ ]'), dtype=int, sep=' ') for csi_datum in CSI_col])
+    print("CSI column shape", CSI_col.shape)
+    temp = [np.fromstring(csi_datum.strip('[ ]'), dtype=int, sep=' ') for csi_datum in CSI_col]
+    work_pls = []
+    for packet in temp:
+        if len(str(packet).split(" ")) > 600: # Random ass check
+            work_pls.append(packet)
+    final_csi_data = np.array(work_pls)
+    print("Type is", final_csi_data[0][0].dtype)
     print("csi data shape", final_csi_data.shape)
     return final_csi_data
 
@@ -78,16 +84,15 @@ def filter_data(df):
     for subcarrier in range(df.shape[1]):
         x = df.iloc[:, subcarrier]
         coef = pywt.wavedec(x, wavelet=wavelet, mode="per")
-        #print(len(coef))
         mad = np.mean(np.absolute(coef[-1] - np.mean(coef[-1], axis=None)), axis=None)
         #N0.75 procentile= cirka 0.6745
-        sigma = (1 / 0.6745) * mad
+        sigma = (1 / 0.7754) * mad
         thresh = sigma * np.sqrt(2 * np.log(len(x)))
         coef[1:] = (pywt.threshold(i, value=thresh, mode='hard') for i in coef[1:])
         filter=pywt.waverec(coef, wavelet=wavelet, mode='per')
         filter = filter.tolist()
         filtered.append(filter)
-    return filtered
+    return np.transpose(np.array(filtered))
 
 
 def four_plots():
@@ -215,18 +220,37 @@ df = parse("kanalforsøg/Kanal11Bevægelse.csv")
 # print(df.shape)
 # one_after_another(amps)
 
-still1 = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
-still6 = amp_calc(parse("kanalforsøg/Kanal6Stilhed.csv"))
-still11 = amp_calc(parse("kanalforsøg/Kanal11Stilhed.csv"))
+# still1 = amp_calc(parse("kanalforsøg/Kanal1Stilhed.csv"))
+# still6 = amp_calc(parse("kanalforsøg/Kanal6Stilhed.csv"))
+# still11 = amp_calc(parse("kanalforsøg/Kanal11Stilhed.csv"))
+#
+# move1 = amp_calc(parse("kanalforsøg/Kanal1Bevægelse.csv"))
+# move6 = amp_calc(parse("kanalforsøg/Kanal6Bevægelse.csv"))
+# move11 = amp_calc(parse("kanalforsøg/Kanal11Bevægelse.csv"))
 
-move1 = amp_calc(parse("kanalforsøg/Kanal1Bevægelse.csv"))
-move6 = amp_calc(parse("kanalforsøg/Kanal6Bevægelse.csv"))
-move11 = amp_calc(parse("kanalforsøg/Kanal11Bevægelse.csv"))
+# labels = [0]*len(still1) + [1]*len(move1) + [0]*len(still6) + [1]*len(move6) + [0]*len(still11) + [1]*len(move11)
+# data = np.concatenate((still1, move1, still6, move6, still11, move11), axis=0)
+# print(len(labels))
+# print(len(data))
 
-labels = [0]*len(still1) + [1]*len(move1) + [0]*len(still6) + [1]*len(move6) + [0]*len(still11) + [1]*len(move11)
-data = np.concatenate((still1, move1, still6, move6, still11, move11), axis=0)
-print(len(labels))
-print(len(data))
+still1 = amp_calc(parse("Bib_kanal_test/bib_kanal9_still.csv"))
+still2 = amp_calc(parse("Bib_kanal_test/bib_kanal9_still2.csv"))
+move1 = amp_calc(parse("Bib_kanal_test/bib_kanal9_move.csv"))
+move2 = amp_calc(parse("Bib_kanal_test/bib_kanal9_move2.csv"))
 
+still = np.concatenate((remove_bad_carriers(still1), remove_bad_carriers(still2)), axis=0)
+move = np.concatenate((remove_bad_carriers(move1), remove_bad_carriers(move2)), axis=0)
 
+still_filtered = filter_data(still)
+move_filtered = filter_data(move)
+
+plt.subplot(2, 1, 1)
+plt.axvline(x=len(still1), linestyle='dotted')
+plt.plot(still_filtered)
+plt.title("Bib still concatenated")
+plt.subplot(2, 1, 2)
+plt.axvline(x=len(move1), linestyle='dotted')
+plt.plot(move_filtered)
+plt.title("Bib move concatenated")
+plt.show()
 

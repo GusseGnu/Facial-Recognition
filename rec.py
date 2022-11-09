@@ -2,8 +2,37 @@ import sys
 import matplotlib.pyplot as plt
 import math
 import numpy as np
+import pandas as pd
 import collections
+import tensorflow
+from tensorflow import keras
 from wait_timer import WaitTimer
+from ML import parse, amp_calc, remove_bad_carriers
+
+
+train_still = amp_calc(parse("kanal1/train_still.csv"))
+train_move = amp_calc(parse("kanal1/train_move.csv"))
+
+# test_still = amp_calc(parse("kanal1/test_still.csv"))
+# test_move = amp_calc(parse("kanal1/test_move.csv"))
+
+train_data = np.concatenate((train_still, train_move), axis=0)
+train_labels = [0]*len(train_still) + [1]*len(train_move)
+# train_data, indices = remove_bad_carriers(train_data)
+train_data = np.array(train_data)
+train_labels = np.array(train_labels)
+
+model = keras.Sequential()
+model.add(keras.layers.Input(shape=(train_data.shape[1], 1), dtype=tensorflow.float64)),
+model.add(keras.layers.LSTM(train_data.shape[1], kernel_regularizer=keras.regularizers.L2(0.001))),
+model.add(keras.layers.Dropout(0.4))
+model.add(keras.layers.Dense(1, activation='sigmoid'))
+
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+model.build()
+model.summary()
+
+model.fit(train_data, train_labels, epochs=10)
 
 # Set subcarrier to plot
 subcarrier = 50
@@ -11,6 +40,7 @@ subcarrier = 50
 # Wait Timers. Change these values to increase or decrease the rate of `print_stats` and `render_plot`.
 print_stats_wait_timer = WaitTimer(1.0)
 render_plot_wait_timer = WaitTimer(0.2)
+ML_predict_wait_timer = WaitTimer(2.0)
 
 # Deque definition
 perm_amp = collections.deque(maxlen=100)
@@ -26,6 +56,8 @@ fig = plt.figure()
 ax = fig.add_subplot(111)
 fig.canvas.draw()
 plt.show(block=False)
+
+
 def readline():
     while True:
         try:
@@ -33,6 +65,8 @@ def readline():
             return sys.stdin.buffer.readline().decode('utf-8').replace("\n", "")
         except:
             pass  # might not be a utf-8 string!
+
+
 def carrier_plot(amp):
     plt.clf()
     df = np.asarray(amp, dtype=np.int32)
@@ -41,12 +75,14 @@ def carrier_plot(amp):
     plt.xlabel("Time")
     plt.ylabel("Amplitude")
     plt.xlim(0, 100)
-    plt.ylim(0,60)
+    plt.ylim(0, 60)
     plt.title(f"Amplitude plot of Subcarrier {subcarrier}")
     # TODO use blit instead of flush_events for more fastness
     # to flush the GUI events
     fig.canvas.flush_events()
     plt.show()
+
+
 def process(res):
     # Parser
     all_data = res.split(',')
@@ -74,6 +110,14 @@ def process(res):
         perm_phase.append(phases)
         perm_amp.append(amplitudes)
 
+
+def predict(data):
+    predictions = (model.predict(data) > 0.5).astype(int)
+    if predictions.count(1) > (len(predictions) * 0.9):
+        print("Movement")
+    else:
+        print("No movement")
+
 count = 0
 
 while True:
@@ -89,7 +133,12 @@ while True:
             print_stats_wait_timer.update()
             print("Packet Count:", packet_count, "per second.", "Total Count:", total_packet_counts)
             packet_count = 0
+            if len(perm_amp) == 100:
+                predict(perm_amp)
 
         if render_plot_wait_timer.check() and len(perm_amp) > 2:
             render_plot_wait_timer.update()
             carrier_plot(perm_amp)
+
+        # if ML_predict_wait_timer.check() and len(perm_amp) == 100:
+        #     predict(perm_amp)
