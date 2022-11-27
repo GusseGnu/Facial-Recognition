@@ -135,6 +135,33 @@ def train_model(train_data, train_labels, epochs, config):
     model = keras.Sequential()
     model.add(keras.layers.Input(shape=(train_data.shape[1], 1), dtype=tensorflow.float64)),
     if "regularizer" in config.lower():
+        model.add(keras.layers.LSTM(train_data.shape[1], kernel_regularizer=keras.regularizers.L2(0.001)))
+    else:
+        model.add(keras.layers.LSTM(train_data.shape[1]))
+    if "dropout" in config.lower():
+        model.add(keras.layers.Dropout(0.5))
+    model.add(keras.layers.Dense(1, activation='sigmoid'))
+
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['binary_accuracy'])
+    model.build()
+    model.summary()
+
+    model.fit(train_data, train_labels, epochs=epochs)
+    test_loss, test_acc = model.evaluate(train_data, train_labels)
+    print('\nTrain accuracy:', test_acc*100, "%")
+
+    return model, test_acc*100
+
+
+def train_model_with_history(train_data, train_labels, epochs, config):
+    train_data = np.array(train_data)
+    train_labels = np.array(train_labels)
+    print(train_data.shape)
+    print("Data type is", train_data[0][0].dtype)
+
+    model = keras.Sequential()
+    model.add(keras.layers.Input(shape=(train_data.shape[1], 1), dtype=tensorflow.float64)),
+    if "regularizer" in config.lower():
         model.add(keras.layers.LSTM(train_data.shape[1], kernel_regularizer=keras.regularizers.L2(0.001))),
     else:
         model.add(keras.layers.LSTM(train_data.shape[1])),
@@ -142,37 +169,103 @@ def train_model(train_data, train_labels, epochs, config):
         model.add(keras.layers.Dropout(0.5))
     model.add(keras.layers.Dense(1, activation='sigmoid'))
 
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['binary_accuracy'])
     model.build()
     model.summary()
 
-    model.fit(train_data, train_labels, epochs=epochs)
+    history = model.fit(train_data, train_labels, epochs=epochs, validation_split=0.3)
     test_loss, test_acc = model.evaluate(train_data, train_labels)
     print('\nTrain accuracy:', test_acc*100, "%")
-    return model, test_acc*100
+    print(history.history.keys())
+    acc = history.history['binary_accuracy']
+    val_acc = history.history['val_binary_accuracy']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+
+    return model, test_acc*100, acc, val_acc, loss, val_loss
 
 
-def repeat_model_train(train_data, train_labels, test_data, test_labels, repeats, epochs, config):
+def repeat_model_train(train_data, train_labels, test_data, test_labels, repeats, epochs, config, plot):
     test_data = np.array(test_data)
     test_labels = np.array(test_labels)
     print("Train data shape:", train_data.shape, "Test data shape:", test_data.shape)
     train_accuracies = []
     test_accuracies = []
-    for i in range(repeats):
-        model, test_acc = train_model(train_data, train_labels, epochs, config)
-        train_accuracies.append(test_acc)
-        predictions = (model.predict(test_data) > 0.5).astype(int)
-        count = 0
-        for j in range(len(predictions)):
-            if predictions[j] == test_labels[j]:
-                count += 1
-        accuracy = (count / len(test_labels)) * 100
-        print("Test accuracy:", accuracy, "%")
-        test_accuracies.append(accuracy)
-    print("Average train accuracy:", round(sum(train_accuracies) / len(train_accuracies), 2), "%")
-    print(test_accuracies)
-    print("Average test accuracy:", round(sum(test_accuracies)/len(test_accuracies), 2), "%")
+    recalls = []
+    if plot:
+        train_data = np.concatenate((train_data, test_data), axis=0)
+        train_labels = np.concatenate((train_labels, test_labels), axis=0)
+        accuracies = []
+        val_accuracies = []
+        losses = []
+        val_losses = []
+        for i in range(repeats):
+            model, test_acc, acc, val_acc, loss, val_loss = train_model_with_history(train_data, train_labels, epochs, config)
+            train_accuracies.append(test_acc)
+            accuracies.append(acc)
+            val_accuracies.append(val_acc)
+            losses.append(loss)
+            val_losses.append(val_loss)
 
+        print("Accuracies:", accuracies)
+        print("Validation accuracies:", val_accuracies)
+        print("Losses:", losses)
+        print("Validation losses:", val_losses)
+
+        print("Average train accuracy:", round(sum(train_accuracies) / len(train_accuracies), 2), "%")
+
+        plt.subplot(2, 2, 1)
+        for acc in accuracies:
+            plt.plot(acc)
+            plt.xlabel('epochs')
+            plt.ylabel('accuracy')
+        plt.title('training accuracy')
+        plt.subplot(2, 2, 2)
+        for valacc in val_accuracies:
+            plt.plot(valacc)
+            plt.ylabel('accuracy')
+            plt.xlabel('epoch')
+        plt.title('validation accuracy')
+        plt.subplot(2, 2, 3)
+        for los in losses:
+            plt.plot(los)
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+        plt.title('training loss')
+        plt.subplot(2, 2, 4)
+        for vallos in val_losses:
+            plt.plot(vallos)
+            plt.ylabel('loss')
+            plt.xlabel('epoch')
+        plt.title('validation loss')
+        plt.show()
+
+    else:
+        for i in range(repeats):
+            model, test_acc = train_model(train_data, train_labels, epochs, config)
+            train_accuracies.append(test_acc)
+            predictions = (model.predict(test_data) > 0.5).astype(int)
+            true_pos = 0
+            false_neg = 0
+            count = 0
+            for j in range(len(predictions)):
+                if predictions[j] == test_labels[j]:
+                    count += 1
+                    if predictions[j] == 1 and test_labels[j] == 1:
+                        true_pos += 1
+                if predictions[j] == 0 and test_labels[j] == 1:
+                    false_neg += 1
+            accuracy = (count / len(test_labels)) * 100
+            print("Test accuracy:", accuracy, "%")
+            test_accuracies.append(accuracy)
+            recall = (true_pos / (true_pos + false_neg)) * 100
+            print("Recall:", recall)
+            recalls.append(recall)
+        print("Average train accuracy:", round(sum(train_accuracies) / len(train_accuracies), 2), "%")
+        print("Test accuracies:", test_accuracies)
+        print("Recalls:", recalls)
+        print("Average test accuracy:", round(sum(test_accuracies)/len(test_accuracies), 2), "%")
+        print("Average recall:", round(sum(recalls) / len(recalls), 2), "%")
 
 def feature_select(train_data, train_labels, amount, show):
     selector = feature_selection.SelectKBest(feature_selection.f_classif, k=10)
@@ -289,11 +382,11 @@ def data_config1():     # Baseline observations/test
     test_move = amp_calc(parse("kanal1/test_move.csv"))
     test_data = np.concatenate((test_still, test_move), axis=0)
     # test_data = np.array(test_data)[:, indices])   # if feature_select then this else if remove_features then np.delete
-    # test_data = np.delete(test_data, indices, 1)
+    test_data = np.delete(test_data, indices, 1)
     test_labels = np.array([0]*len(test_still) + [1]*len(test_move))
 
-    train_data, indices = feature_select(train_data, train_labels, 66, False)
-    test_data = np.array(test_data[:, indices])
+    # train_data, indices = feature_select(train_data, train_labels, 66, False)
+    # test_data = np.array(test_data[:, indices])
 
     return train_data, train_labels, test_data, test_labels
 
@@ -408,5 +501,78 @@ def data_config6():     # For testing filtering and filter values
     return train_data, train_labels, test_data, test_labels
 
 
-train_data, train_labels, test_data, test_labels = data_config6()
-repeat_model_train(train_data, train_labels, test_data, test_labels, 10, 10, "dropout regularizer")
+def data_config7():     # For testing differences in distance between ESP's
+    train_still = amp_calc(parse("Through_wall/vægstilhedkanal9.csv"))
+    test_still = train_still[int(len(train_still)*0.7):len(train_still), :]
+    train_still = train_still[:int(len(train_still)*0.7), :]
+    train_move = amp_calc(parse("Through_wall/vægbevægkanal9.csv"))
+    test_move = train_move[int(len(train_move)*0.7):len(train_move), :]
+    train_move = train_move[:int(len(train_move)*0.7), :]
+    train_data = np.concatenate((train_still, train_move), axis=0)
+    train_data, indices = remove_bad_carriers(train_data)
+    train_data = np.array(train_data)
+    train_labels = np.array([0]*len(train_still) + [1]*len(train_move) + [1])
+    # print(len(train_still), len(train_move), len(train_labels))
+
+    test_data = np.concatenate((test_still, test_move), axis=0)
+    test_data = np.delete(test_data, indices, 1)
+    test_labels = np.array([0]*len(test_still) + [1]*len(test_move))
+
+    train_data = denoise_data(train_data, 0.7754)
+    test_data = denoise_data(test_data, 0.7754)
+
+    return train_data, train_labels, test_data, test_labels
+
+
+def data_config8():
+    still1, indices = remove_bad_carriers(amp_calc(parse("Distance_osk/4mkanal1.csv")))
+    still2 = np.delete(amp_calc(parse("Distance_osk/6mkanal1.csv")), indices, 1)
+    still3 = np.delete(amp_calc(parse("Distance_osk/8mkanal1.csv")), indices, 1)
+
+    move1 = np.delete(amp_calc(parse("Distance_osk/4mkanal1bevæg.csv")), indices, 1)
+    move2 = np.delete(amp_calc(parse("Distance_osk/6mkanal1bevæg.csv")), indices, 1)
+    move3 = np.delete(amp_calc(parse("Distance_osk/8mkanal1bevæg.csv")), indices, 1)
+
+    train_data = np.concatenate((still1, move1, still2, move2, still3, move3), axis=0)
+    train_labels = [0] * len(still1) + [1] * len(move1) + [0] * len(still2) + [1] * len(move2) + [0] * len(
+        still3) + [1] * len(move3) + [1]
+    train_labels = np.array(train_labels)
+
+    test_still = np.delete(amp_calc(parse("kanal1/test_still.csv")), indices, 1)
+    test_move = np.delete(amp_calc(parse("kanal1/test_move.csv")), indices, 1)
+
+    test_data = np.concatenate((test_still, test_move), axis=0)
+    test_labels = np.array([0]*len(test_still) + [1]*len(test_move))
+
+    train_data = denoise_data(train_data, 0.7754)
+    test_data = denoise_data(test_data, 0.7754)
+
+    print(test_data.shape, test_labels.shape)
+
+    return train_data, train_labels, test_data, test_labels
+
+def data_config9():
+    train_still = amp_calc(parse("Through_wall/beggerumstilhed92.csv"))
+    test_still = train_still[int(len(train_still) * 0.7):len(train_still), :]
+    train_still = train_still[:int(len(train_still) * 0.7), :]
+    train_move = amp_calc(parse("Through_wall/beggerumbevæg9.csv"))
+    test_move = train_move[int(len(train_move) * 0.7):len(train_move), :]
+    train_move = train_move[:int(len(train_move) * 0.7), :]
+    train_data = np.concatenate((train_still, train_move), axis=0)
+    train_data, indices = remove_bad_carriers(train_data)
+    train_data = np.array(train_data)
+    train_labels = np.array([0] * len(train_still) + [1] * len(train_move) + [1])
+
+    test_data = np.concatenate((test_still, test_move), axis=0)
+    test_data = np.delete(test_data, indices, 1)
+    test_labels = np.array([0] * len(test_still) + [1] * len(test_move))
+
+    train_data = denoise_data(train_data, 0.7754)
+    test_data = denoise_data(test_data, 0.7754)
+    test_data = np.delete(test_data, len(test_data) - 1, axis=0)
+
+    return train_data, train_labels, test_data, test_labels
+
+
+train_data, train_labels, test_data, test_labels = data_config1()
+repeat_model_train(train_data, train_labels, test_data, test_labels, 10, 10, "dropout regularizer", False)

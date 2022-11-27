@@ -9,6 +9,8 @@ import math
 import multiprocessing
 import imagezmq
 import socket
+from PIL import Image
+from PIL import GifImagePlugin
 
 
 def training():
@@ -16,32 +18,35 @@ def training():
 
         t1_start = time.process_time()
 
-        # get paths of each file in folder named Training Images
-        image_paths = list(paths.list_images('Training Images'))
+        # get paths of each file in training folder
+        image_paths = list(paths.list_files('Yalefaces'))
         print("imagePaths: " + str(image_paths))
         # loop over the image paths
         for (i, imagePath) in enumerate(image_paths):
-            print("imagePath: \"" + str(imagePath) + "\"")
-            # extract the person name from the image path
-            name = imagePath.split(os.path.sep)[-2]
-            print("name: " + str(name))
-            # load the input image and convert it from BGR (OpenCV ordering)
-            # to dlib ordering (RGB)
-            image = cv2.imread(imagePath)
-            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            # gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # Use Face_recognition to locate faces
-            boxes = face_recognition.face_locations(image, model='cnn')
-            # compute the facial embedding for the face
-            encodings = face_recognition.face_encodings(rgb, boxes)
-            # loop over the encodings
-            for encoding in encodings:
-                knownEncodings.append(encoding)
-                knownNames.append(name)
+            if not imagePath.__contains__("normal"):
+                print("imagePath: \"" + str(imagePath) + "\"")
+                # extract the person name from the image path
+                name = imagePath.split(os.path.sep)[-2]
+                print("name: " + str(name))
+                # load the input image and convert it from BGR (OpenCV ordering)
+                # to dlib ordering (RGB)
+                #image = cv2.imread(imagePath)
+                images = Image.open(imagePath)
+                images.save("image.jpg")
+                image = cv2.imread("image.jpg")
+                # rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                # Use Face_recognition to locate faces
+                boxes = face_recognition.face_locations(image, model='hog')
+                # compute the facial embedding for the face
+                encodings = face_recognition.face_encodings(image, boxes)
+                # loop over the encodings
+                for encoding in encodings:
+                    knownEncodings.append(encoding)
+                    knownNames.append(name)
         # save encodings along with their names in dictionary data
         face_data = {"encodings": knownEncodings, "names": knownNames}
         # use pickle to save data into a file for later use
-        f = open("face_enc", "wb")
+        f = open("yale_faces_enc", "wb")
         f.write(pickle.dumps(face_data))
         f.close()
 
@@ -49,6 +54,79 @@ def training():
         print(
             "Completed facial feature extraction in " + str(t1_stop - t1_start) + " seconds with an average of " + str(
                 (t1_stop - t1_start) / len(image_paths)) + " seconds per image")
+
+
+def testing():
+    # get paths of each file in testing folder
+    correct_matches = 0
+    missed_matches = 0
+    image_matches = 0
+    image_paths = list(paths.list_images('Yalefaces'))
+    print("imagePaths: " + str(image_paths))
+    # find path of xml file containing haarcascade file
+    cascPathface = os.path.dirname(
+        cv2.__file__) + "/data/haarcascade_frontalface_alt2.xml"
+    # load the harcaascade in the cascade classifier
+    faceCascade = cv2.CascadeClassifier(cascPathface)
+    # load the known faces and embeddings saved in last file
+    data = pickle.loads(open('yale_faces_enc', "rb").read())
+    # loop over the image paths
+    for (i, imagePath) in enumerate(image_paths):
+        if imagePath.__contains__("normal"):
+            image_matches += 1
+            correct_name = imagePath.split(os.path.sep)[-2]
+            # Find path to the image you want to detect face and pass it here
+            images = Image.open(imagePath)
+            images.save("image.jpg")
+            image = cv2.imread("image.jpg")
+            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # convert image to Greyscale for haarcascade
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            faces = faceCascade.detectMultiScale(gray,
+                                                 scaleFactor=1.1,
+                                                 minNeighbors=5,
+                                                 minSize=(60, 60),
+                                                 flags=cv2.CASCADE_SCALE_IMAGE)
+
+            # the facial embeddings for face in input
+            encodings = face_recognition.face_encodings(rgb)
+            names = []
+            # loop over the facial embeddings incase
+            # we have multiple embeddings for multiple fcaes
+            for encoding in encodings:
+                # Compare encodings with encodings in data["encodings"]
+                # Matches contain array with boolean values and True for the embeddings it matches closely
+                # and False for rest
+                matches = face_recognition.compare_faces(data["encodings"],
+                                                         encoding)
+                # set name to "Unknown" if no encoding matches
+                name = "Unknown"
+                # check to see if we have found a match
+                if True in matches:
+                    # Find positions at which we get True and store them
+                    matchedIdxs = [i for (i, b) in enumerate(matches) if b]
+                    counts = {}
+                    # loop over the matched indexes and maintain a count for
+                    # each recognized face
+                    for i in matchedIdxs:
+                        # Check the names at respective indexes we stored in matchedIdxs
+                        name = data["names"][i]
+                        # increase count for the name we got
+                        counts[name] = counts.get(name, 0) + 1
+                        # set name which has highest count
+                        name = max(counts, key=counts.get)
+
+                    # update the list of names
+                    names.append(name)
+                if names.__contains__(correct_name):
+                    correct_matches += 1
+                    print("Matched", name, "correctly")
+                else:
+                    missed_matches += 1
+                    print("Could not match", correct_name)
+    print("Missed matches", missed_matches)
+    print("Number of matches", correct_matches)
+    print("Accuracy", round((correct_matches / image_matches)*100, 2), "%")
 
 
 # ------------------------------------------------------------------------------------------------ #
@@ -200,27 +278,32 @@ def video_display(out_queue):
 
 cas_face_path = os.path.dirname(cv2.__file__) + "/data/haarcascade_frontalface_alt2.xml"
 faceCascade = cv2.CascadeClassifier(cas_face_path)
-file_exists = os.path.exists("face_enc")
+file_exists = os.path.exists("yale_faces_enc")
 if file_exists:
-    data = pickle.loads(open('face_enc', "rb").read())
+    data = pickle.loads(open('yale_faces_enc', "rb").read())
     knownEncodings = data["encodings"]
     knownNames = data["names"]
+    testing()
 else:
+    knownEncodings = []
+    knownNames = []
     training()
+    testing()
 
-if __name__ == "__main__":
 
-    input_queue = multiprocessing.Queue(maxsize=1000)
-    output_queue = multiprocessing.Queue(maxsize=1000)
-    facebox_queue = multiprocessing.Queue(maxsize=1000)
+# if __name__ == "__main__":
 
-    proc1 = multiprocessing.Process(target=video_capture, args=(input_queue, output_queue, facebox_queue))
-    proc1.start()
-
-    proc2 = multiprocessing.Process(target=video_processing, args=(input_queue, facebox_queue))
-    proc2.start()
-
-    proc3 = multiprocessing.Process(target=video_display, args=(output_queue,))
-    proc3.start()
-
-    # TODO Close all processes when q pressed
+    # input_queue = multiprocessing.Queue(maxsize=1000)
+    # output_queue = multiprocessing.Queue(maxsize=1000)
+    # facebox_queue = multiprocessing.Queue(maxsize=1000)
+    #
+    # proc1 = multiprocessing.Process(target=video_capture, args=(input_queue, output_queue, facebox_queue))
+    # proc1.start()
+    #
+    # proc2 = multiprocessing.Process(target=video_processing, args=(input_queue, facebox_queue))
+    # proc2.start()
+    #
+    # proc3 = multiprocessing.Process(target=video_display, args=(output_queue,))
+    # proc3.start()
+    #
+    # # TODO Close all processes when q pressed

@@ -1,6 +1,10 @@
 import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 import pandas as pd
+import pywt
+
+matplotlib.use('TkAgg')
 
 def parse(path):
     csi_df = pd.read_csv(path)
@@ -37,9 +41,53 @@ def remove_bad_carriers(amp_data):
     return good_ones
 
 
-file = "kanal1/move5.csv"
-data = remove_bad_carriers(amp_calc(parse(file)))
+def denoise_data(df, value):
+    print("Filtering received shape", df.shape)
+    df = pd.DataFrame(df)
+    filtered = []
+    wavelet = "db4"
+    for subcarrier in range(df.shape[1]):
+        x = df.iloc[:, subcarrier]
+        coef = pywt.wavedec(x, wavelet=wavelet, mode="per")
+        mad = np.mean(np.absolute(coef[-1] - np.mean(coef[-1], axis=None)), axis=None)
+        # N0.75 procentile= cirka 0.6745
+        sigma = (1 / value) * mad
+        thresh = sigma * np.sqrt(2 * np.log(len(x)))
+        coef[1:] = (pywt.threshold(i, value=thresh, mode='hard') for i in coef[1:])
+        filter = pywt.waverec(coef, wavelet=wavelet, mode='per')
+        filter = filter.tolist()
+        filtered.append(filter)
+    filtered = np.transpose(np.array(filtered))
+    # filtered = np.delete(filtered, len(filtered)-1, axis=0)
+    print("Filtering returning shape", filtered.shape)
+    return filtered
 
+
+# plt.subplot(2, 1, 1)
+#
+# file = "Through_wall/beggerumstilhed92.csv"
+# data = remove_bad_carriers(amp_calc(parse(file)))
+# # data = denoise_data(data, 0.7754)
+# # plt.axvline(x=100, linestyle='dotted')
+# plt.plot(data)
+# plt.title(file)
+#
+# plt.subplot(2, 1, 2)
+#
+# file = "Through_wall/beggerumbevæg9.csv"
+# data = remove_bad_carriers(amp_calc(parse(file)))
+# # data = denoise_data(data, 0.7754)
+#
+# plt.plot(data)
+# plt.title(file)
+# plt.show()
+
+file = "Bib_kanal_test/bib_kanal9_move.csv"
+data = remove_bad_carriers(amp_calc(parse(file)))
+data = np.array(data[:, range(data.shape[1]-50, data.shape[1])])
+data = denoise_data(data, 0.7754)
 plt.plot(data)
-plt.title(file)
+plt.title("Line graph")
+plt.ylabel("Amplitude (dB)")
+plt.xlabel("Packet number")
 plt.show()
